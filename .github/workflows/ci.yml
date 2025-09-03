@@ -1,4 +1,4 @@
-name: Java CI Pipeline
+name: Java CI/CD Pipeline
 
 on:
   push:
@@ -60,6 +60,10 @@ jobs:
     needs: build-and-test
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    outputs:
+      main_tag: ${{ steps.meta.outputs.main_tag }}
+      latest_tag: ${{ steps.meta.outputs.latest_tag }}
+      image_digest: ${{ steps.build.outputs.digest }}
     
     steps:
       - name: Checkout code
@@ -76,7 +80,6 @@ jobs:
         run: |
           SHORT_SHA=${GITHUB_SHA::8}
           BRANCH=${GITHUB_REF_NAME}
-          TIMESTAMP=$(date +%Y%m%d%H%M%S)
           
           if [ "$BRANCH" == "master" ] || [ "$BRANCH" == "main" ]; then
             MAIN_TAG="java-v1.0.${GITHUB_RUN_NUMBER}-${SHORT_SHA}"
@@ -93,6 +96,8 @@ jobs:
           echo "latest_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+          
+          echo "Generated tags: ${MAIN_TAG}, ${LATEST_TAG}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -105,6 +110,7 @@ jobs:
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -119,15 +125,21 @@ jobs:
 
       - name: Image Summary
         run: |
-          echo "Repository: ${{ env.IMAGE_REPO }}" >> $GITHUB_STEP_SUMMARY
-          echo "Branch: ${{ steps.meta.outputs.branch }}" >> $GITHUB_STEP_SUMMARY
-          echo "Short SHA: ${{ steps.meta.outputs.short_sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "Tags:" >> $GITHUB_STEP_SUMMARY
-          echo "- ${{ env.IMAGE_REPO }}:${{ steps.meta.outputs.main_tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "- ${{ env.IMAGE_REPO }}:${{ steps.meta.outputs.latest_tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "Pull commands:" >> $GITHUB_STEP_SUMMARY
+          echo "## Docker Images Built & Pushed 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** \`${{ env.IMAGE_REPO }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ steps.meta.outputs.branch }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Short SHA:** \`${{ steps.meta.outputs.short_sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏷️ Available Tags:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_REPO }}:${{ steps.meta.outputs.main_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_REPO }}:${{ steps.meta.outputs.latest_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🐳 Pull Commands:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
           echo "docker pull ${{ env.IMAGE_REPO }}:${{ steps.meta.outputs.main_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "docker pull ${{ env.IMAGE_REPO }}:${{ steps.meta.outputs.latest_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
   security-scan:
     name: Security Scan
@@ -146,5 +158,6 @@ jobs:
 
       - name: Upload Trivy scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v2
+        if: always()
         with:
           sarif_file: 'trivy-results.sarif'
